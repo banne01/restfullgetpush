@@ -92,20 +92,37 @@ class RabbitQ():
         print self.subDict._debug()
     
     def unSubscrubetoTopic(self, t, consumer):
+        # get the que
+        # queue_purge 
+        # queue_unbind
+        queue_name = self.subDict.getSub(consumer, t) 
+        if queue_name is None:
+            return None
+        self.channel.queue_purge(exchange=t, queue=queue_name)
+        self.channel.queue_unbind(exchange=t, queue=queue_name)
         self.subDict.deleteSub(consumer, t) 
         print self.subDict._debug()
          
 
-    def callback(self, ch, method, properties, body):
-        print " [x] %r" % (body,)
+    #def callback(self, ch, method, properties, body):
+    #    print "in callback %s" % body
+    #    print " [x] %r" % (body,)
     
-    def recvMessageonTopic(self, t, consumer, HttpCallback):
+    def recvMessageonTopic(self, t, consumer):
         queue_name = self.subDict.getSub(consumer, t) 
         if queue_name is None:
-            return
-        self.channel.basic_consume(self.callback,
-                      queue=queue_name,
-                      no_ack=True)
+            return 404,None
+        method_frame, header_frame, body = self.channel.basic_get(queue_name, False)
+        if method_frame:
+            #print method_frame, header_frame, body
+            return 400,None
+                
+        else:
+            return 200,None
+        #self.channel.basic_get(queue_name, False)
+        #self.channel.basic_consume(self.callback,
+        #             queue=queue_name,
+        #              no_ack=True)
 
     def checktopic(self, t):   
         for t in topics:
@@ -128,6 +145,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        print "Post request"
         split = self.pathsplit(self.path)
         #print "request path %s"%self.path
         print split  
@@ -156,32 +174,24 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         self.sendResp(200)
 
     def do_GET(self):
-       # if None != re.search('/api/v1/getrecord/*', self.path):
-       #     recordID = self.path.split('/')[-1]
-       #     if LocalData.records.has_key(recordID):
-       #         self.send_response(200)
-       #         self.send_header('Content-Type', 'text/plain')
-       #         self.end_headers()
-       #         self.wfile.write(LocalData.records[recordID])
-       #     else:
-       #         self.send_response(400, 'Bad Request: record does not exist')
-       #         self.send_header('Content-Type', 'application/json')
-       #         self.end_headers()
-       # else:
-       #     self.send_response(403)
-       #     self.send_header('Content-Type', 'application/json')
-       #     self.end_headers()
+        print "Get request"
         print self.path
         split = self.pathsplit(self.path)
         #print "request path %s"%self.path
         print split 
         if len(split) != 2:
-            self.sendError(400)
+            self.sendResp(400)
         topic = split[0]    
         subcr = split[1]
-          
+        q = RabbitQ()
+        code, msg = q.recvMessageonTopic(topic, subcr)
+        print "Get revMesg"
+        print code, msg
+        if code != 200:
+            self.sendResp(code)
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
+        self.wfile.write(msg)
         self.end_headers()
     
     #def do_PUT(self):
@@ -233,14 +243,14 @@ if __name__=='__main__':
     #server = SimpleHttpServer(args.ip, args.port)
     server = SimpleHttpServer("127.0.0.1", 8080)
     print 'HTTP Server Running...........'
-    mq = RabbitQ()
+    #mq = RabbitQ()
     
     #mq.subscribeTopic(topics[0],"one")
     #mq.subscribeTopic(topics[1],"one")
     
     
     #mq.publisToTopic(topics[1], "time2")
-    #mq.recvMessageonTopic(topics[0], "one", None)
+    #mq.recvMessageonTopic(topics[0], "one")
     #mq.recvMessageonTopic(topics[1], "one")
     #mq.publisToTopic(topics[0], "time1")
     #mq.recvMessageonTopic(topics[0], "one")
