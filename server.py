@@ -49,7 +49,13 @@ class SubscrptiobDB():
         print self.subDict
     
 class RabbitQ():
-    
+    _instance = None
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(Singleton, cls).__new__(
+                                cls, *args, **kwargs)
+        return cls._instance
+
     def __init__(self):
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(
             host='localhost'))
@@ -93,7 +99,7 @@ class RabbitQ():
     def callback(self, ch, method, properties, body):
         print " [x] %r" % (body,)
     
-    def recvMessageonTopic(self, t, consumer):
+    def recvMessageonTopic(self, t, consumer, HttpCallback):
         queue_name = self.subDict.getSub(consumer, t) 
         if queue_name is None:
             return
@@ -108,27 +114,46 @@ class RabbitQ():
         return False
     
 class HTTPRequestHandler(BaseHTTPRequestHandler):
- 
-    def do_POST(self):
-        
-        #if None != re.search('/api/v1/addrecord/*', self.path):
-        #    #ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
-        #    recordID = self.path.split('/')[-1]
-        #    if(recordId is ""):
-        #        data = {}
-        #       self.send_response(200)
-        #        self.end_headers()
-        #    else:
-        #        LocalData.records[recordID] = data
-        #        print "record %s is added successfully" % recordID
-        #else:
-        #    self.send_response(403)
-        #    self.send_header('Content-Type', 'text/plain')
-        #    self.end_headers()
-        print self.path 
-        self.send_response(200)
+    
+    def pathsplit(self, path):
+        #rest_path = []
+        path_list = path.split('/')
+        while '' in path_list:
+            path_list.remove('')
+        return path_list
+    
+    def sendResp(self, respcode):
+        self.send_response(respcode)
+        self.send_header('Content-Type', 'text/plain')
         self.end_headers()
-        return
+
+    def do_POST(self):
+        split = self.pathsplit(self.path)
+        #print "request path %s"%self.path
+        print split  
+        if len(split) > 2:
+            self.sendResp(400)
+            return
+        if len(split) == 1:
+            ctype, pdict = cgi.parse_header(self.headers['content-type'])
+            if ctype != 'application/x-www-form-urlencoded':
+                self.sendResp(400)
+                return
+            length = int(self.headers['content-length'])
+            postvars = cgi.parse_qs(
+                        self.rfile.read(length), 
+                        keep_blank_values=1)
+            #print "post lenght %d"% length
+            print postvars
+            topic = split[0] 
+            q = RabbitQ()
+            q.publisToTopic(topic, postvars['data'][0])
+        else:   
+            topic = split[0]    
+            subcr = split[1]
+            q = RabbitQ()
+            q.subscribeTopic(topic, subcr)
+        self.sendResp(200)
 
     def do_GET(self):
        # if None != re.search('/api/v1/getrecord/*', self.path):
@@ -146,17 +171,35 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
        #     self.send_response(403)
        #     self.send_header('Content-Type', 'application/json')
        #     self.end_headers()
-
-        print self.path 
-        return
+        print self.path
+        split = self.pathsplit(self.path)
+        #print "request path %s"%self.path
+        print split 
+        if len(split) != 2:
+            self.sendError(400)
+        topic = split[0]    
+        subcr = split[1]
+          
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
     
-    def do_PUT(self):
-        print self.path 
-        return
+    #def do_PUT(self):
+    #    print self.path
+    #    split = self.pathsplit(self.path)
+    #    print "request path %s"%self.path
+    #    print split 
+    #    self.send_response(200)
+    #    self.send_header('Content-Type', 'text/plain')
+    #    self.end_headers()
     
     def do_DELETE(self):
-        print self.path 
-        return
+        split = self.pathsplit(self.path)
+        print split 
+        
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
 
  
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -187,27 +230,23 @@ if __name__=='__main__':
     #parser.add_argument('port', type=int, help='Listening port for HTTP Server')
     #parser.add_argument('ip', help='HTTP Server IP')
     #args = parser.parse_args()
- 
     #server = SimpleHttpServer(args.ip, args.port)
     server = SimpleHttpServer("127.0.0.1", 8080)
     print 'HTTP Server Running...........'
-    #db = Database()
-    #db.publish("news","first news")
-    #print db.retrieve("news")
     mq = RabbitQ()
     
-    mq.subscribeTopic(topics[0],"one")
-    mq.subscribeTopic(topics[1],"one")
+    #mq.subscribeTopic(topics[0],"one")
+    #mq.subscribeTopic(topics[1],"one")
     
     
-    mq.publisToTopic(topics[1], "time2")
-    mq.publisToTopic(topics[0], "time1")
-    mq.recvMessageonTopic(topics[0], "one")
-    mq.recvMessageonTopic(topics[1], "one")
-    
-    mq.unSubscrubetoTopic(topics[0],"one")
-    mq.unSubscrubetoTopic(topics[1],"one")
+    #mq.publisToTopic(topics[1], "time2")
+    #mq.recvMessageonTopic(topics[0], "one", None)
+    #mq.recvMessageonTopic(topics[1], "one")
+    #mq.publisToTopic(topics[0], "time1")
+    #mq.recvMessageonTopic(topics[0], "one")
+    #mq.unSubscrubetoTopic(topics[0],"one")
+    #mq.unSubscrubetoTopic(topics[1],"one")
 
-    #server.start()
-    #server.waitForThread()
+    server.start()
+    server.waitForThread()
  
