@@ -1,0 +1,39 @@
+#This solution has been tested with centos 6.6 , pythom 2.6.6
+#install python and rabbitmq server  
+yum install python
+yum install python-setuptools 
+pip install pika
+
+#install erlang
+su -c 'rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm'
+su -c ' yum install erlang'
+
+# Add and enable relevant application repositories:
+# Note: We are also enabling third party remi package repositories.
+wget http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+wget http://rpms.famillecollet.com/enterprise/remi-release-6.rpm
+sudo rpm -Uvh remi-release-6*.rpm epel-release-6*.rpm
+
+# Finally, download and install Erlang:
+yum install -y erlang
+Once we have Erlang, we can continue with installing RabbitMQ:
+
+# Download the latest RabbitMQ package using wget:
+wget http://www.rabbitmq.com/releases/rabbitmq-server/v3.2.2/rabbitmq-server-3.2.2-1.noarch.rpm
+
+# Add the necessary keys for verification:
+rpm --import http://www.rabbitmq.com/rabbitmq-signing-key-public.asc
+
+# Install the .RPM package using YUM:
+yum install rabbitmq-server-3.2.2-1.noarch.rpm
+
+# start the rabbitmq server for local host at default port
+./rabbitmq-server 
+
+# The code contains two file
+# server.py is a basic http server which serves the rest request
+python server.py
+
+# the file contains pycurl wrapper to test differnt cases when server is up and running
+
+
