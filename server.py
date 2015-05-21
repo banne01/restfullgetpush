@@ -79,11 +79,15 @@ class RabbitQ():
         if self.checktopic(t):
             self.channel.basic_publish(exchange= t,
                      routing_key='', body=message)
-    
+            return 200
+        return 404
     def subscribeTopic(self, t, consumer):
         #create a new queue and output it to a map 
         if self.checktopic(t) == False:
-            return   
+            return 400
+        queue_name = self.subDict.getSub(consumer, t) 
+        if queue_name:
+            return 200
         result = self.channel.queue_declare(exclusive=True,auto_delete=True)
         queue_name = result.method.queue
         if debug_mode:
@@ -92,7 +96,7 @@ class RabbitQ():
         self.subDict.insertSub(consumer, t, queue_name)
         if debug_mode:
             print self.subDict._debug()
-    
+        return 200
     def unSubscrubetoTopic(self, t, consumer):
         queue_name = self.subDict.getSub(consumer, t) 
         if queue_name is None:
@@ -159,12 +163,13 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             if debug_mode:
                 print postvars
             topic = split[0] 
-            RabbitQ_singleton.publisToTopic(topic, postvars['data'][0])
+            code = RabbitQ_singleton.publisToTopic(topic, postvars['data'][0])
+            self.sendResp(code)
         else:   
             topic = split[0]    
             subcr = split[1]
-            RabbitQ_singleton.subscribeTopic(topic, subcr)
-        self.sendResp(200)
+            code = RabbitQ_singleton.subscribeTopic(topic, subcr)
+            self.sendResp(code)
 
     def do_GET(self):
         if debug_mode:
