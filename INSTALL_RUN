@@ -33,7 +33,8 @@ yum install rabbitmq-server-3.2.2-1.noarch.rpm
 # The code contains two file
 # server.py is a basic http server which serves the rest request
 python server.py
-
 # the file contains pycurl wrapper to test differnt cases when server is up and running
+# to test run following cases 
+python test.py 
 
 

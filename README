@@ -1,9 +1,23 @@
-This is my second iterations for this project
 
-I tried to do the first one with a noSql database which stores message and sort them with timestamp
+This is my second iterations for this project which I tried on day 2
+
+I tried to do the first one with a noSql database which stores message and sort them with timestamp.
 
 The second solution is based on rabbiMq messaging server which I found quite a perfect suite for this
 
-The http server keeps track in memory for subscriptions and create a queue for each subscriptions
+The http server keeps track of subscriptions in memory and creates a queue for each subscription.
 
+There is lot of cases which needs to handled
+
+1) Configure rabbitQ limits and scale it with per node
+2) There is limited memory for the webserver and we might have to put the subscription data base in database 
+    A good choice will be a in memory data base like redis which automatically has scaling and clustering
+3)More error conditions checking require I did basic test but not a high load test
+
+4) There is need of lot of exception handling in the code which might blow the server up
+
+5) the http server is multithreaded so it should take care of parrallel connections but I did not 
+do a load testing on it.
+
+6) The part is 8080 for the http server and current code does not retry connection or another port
 
