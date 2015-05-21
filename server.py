@@ -218,9 +218,11 @@ class SimpleHttpServer():
         self.server = ThreadedHTTPServer((ip,port), HTTPRequestHandler)
  
     def start(self):
-        self.server_thread = threading.Thread(target=self.server.serve_forever)
-        self.server_thread.daemon = False
-        self.server_thread.start()
+        # Dont create a deamon for testing
+        #self.server_thread = threading.Thread(target=self.server.serve_forever)
+        #self.server_thread.daemon = False
+        #self.server_thread.start()
+        self.server.serve_forever()
  
     def waitForThread(self):
         self.server_thread.join()
