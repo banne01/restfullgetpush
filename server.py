@@ -1,25 +1,23 @@
 from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
 from SocketServer import ThreadingMixIn
-try:
-    import cPickle as pickle
-except:
-    import pickle
 import pprint
 import threading
-import re
 import cgi
 import os
-import redis
 import pika
+import sys
 
+# list of topics ..keep is simple
 topics = ['sports', 'politics', 'religion']
-
+debug_mode = False
+# there are better ways for signleton then static variable
+# Need to to make RabbitMQ singleton later
+RabbitQ_singleton = None
 # subscriptiob database in memory
-# can be ported to redis type backend
+# can be ported to redis type backend for extention
 class SubscrptiobDB():
     def __init__(self):
         self.subDict  = dict()
-    
     #insert into a topic subs
     def insertSub(self, subs, topic, queue):
         if subs in self.subDict.keys():
@@ -29,12 +27,15 @@ class SubscrptiobDB():
             topic_dict = dict();
             topic_dict[topic] = queue;
             self.subDict[subs] = topic_dict
-    
+    # delte subscription 
     def deleteSub(self, sub, topic):
         if sub in self.subDict.keys():
             topic_dict = self.subDict[sub]
             del topic_dict[topic]
-    
+            ##purge empty kesy 
+            if bool(topic_dict) is False:
+                self.subDict.pop(sub, None)  
+    # get subscription 
     def getSub(self, subs, topic):
         if subs in self.subDict.keys():
             topic_dict = self.subDict[subs]
@@ -44,30 +45,29 @@ class SubscrptiobDB():
                 return None
         else:
             return None
-
     def _debug(self):
         print self.subDict
-    
+#This class handle all messaging queues
+#There is a exchange per topic and queue per subscriber to the topic
+#
 class RabbitQ():
-    _instance = None
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(Singleton, cls).__new__(
-                                cls, *args, **kwargs)
-        return cls._instance
-
     def __init__(self):
-        self.connection = pika.BlockingConnection(pika.ConnectionParameters(
-            host='localhost'))
+        try:
+            self.connection = pika.BlockingConnection(pika.ConnectionParameters(
+                host='localhost'))
+        except:
+            raise
         self.channel = self.connection.channel()
         self.createTopicExchange()
-        #kesy for dictionary
+        #subscriptionDB
         self.subDict  =  SubscrptiobDB()
 
     #close connection and delete queues
     def __del__(self):
         self.connection.close()
-    
+        for t in topics:
+            self.channel.exchange_delete(exchange=t)
+            self.channel.close() 
     def createTopicExchange(self):
     #create a exchange for each of the topics
         for t in topics:
@@ -75,7 +75,7 @@ class RabbitQ():
                          type='fanout')
     
     def publisToTopic(self, t, message):
-        #publis to topic
+        #publish to topic
         if self.checktopic(t):
             self.channel.basic_publish(exchange= t,
                      routing_key='', body=message)
@@ -84,56 +84,51 @@ class RabbitQ():
         #create a new queue and output it to a map 
         if self.checktopic(t) == False:
             return   
-        result = self.channel.queue_declare(exclusive=True)
+        result = self.channel.queue_declare(exclusive=True,auto_delete=True)
         queue_name = result.method.queue
-        print queue_name
+        if debug_mode:
+            print queue_name
         self.channel.queue_bind(exchange=t, queue=queue_name)
         self.subDict.insertSub(consumer, t, queue_name)
-        print self.subDict._debug()
+        if debug_mode:
+            print self.subDict._debug()
     
     def unSubscrubetoTopic(self, t, consumer):
-        # get the que
-        # queue_purge 
-        # queue_unbind
         queue_name = self.subDict.getSub(consumer, t) 
         if queue_name is None:
-            return None
-        self.channel.queue_purge(exchange=t, queue=queue_name)
-        self.channel.queue_unbind(exchange=t, queue=queue_name)
+            return 400
+        self.channel.queue_delete(queue=queue_name)
         self.subDict.deleteSub(consumer, t) 
-        print self.subDict._debug()
+        if debug_mode:
+            print self.subDict._debug()
+        return 200
          
-
-    #def callback(self, ch, method, properties, body):
-    #    print "in callback %s" % body
-    #    print " [x] %r" % (body,)
-    
     def recvMessageonTopic(self, t, consumer):
+        if debug_mode:
+            print " revMesg on topic"
+            print self.subDict._debug()
         queue_name = self.subDict.getSub(consumer, t) 
         if queue_name is None:
             return 404,None
         method_frame, header_frame, body = self.channel.basic_get(queue_name, False)
         if method_frame:
-            #print method_frame, header_frame, body
-            return 400,None
+            if debug_mode:
+                print method_frame, header_frame, body
+            return 200, body
                 
         else:
-            return 200,None
-        #self.channel.basic_get(queue_name, False)
-        #self.channel.basic_consume(self.callback,
-        #             queue=queue_name,
-        #              no_ack=True)
+            return 400,None
 
     def checktopic(self, t):   
         for t in topics:
             if t in topics:
                 return True
         return False
-    
+
+
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     
     def pathsplit(self, path):
-        #rest_path = []
         path_list = path.split('/')
         while '' in path_list:
             path_list.remove('')
@@ -145,10 +140,9 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        print "Post request"
+        if debug_mode:
+            print "Post request"
         split = self.pathsplit(self.path)
-        #print "request path %s"%self.path
-        print split  
         if len(split) > 2:
             self.sendResp(400)
             return
@@ -162,56 +156,51 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                         self.rfile.read(length), 
                         keep_blank_values=1)
             #print "post lenght %d"% length
-            print postvars
+            if debug_mode:
+                print postvars
             topic = split[0] 
-            q = RabbitQ()
-            q.publisToTopic(topic, postvars['data'][0])
+            RabbitQ_singleton.publisToTopic(topic, postvars['data'][0])
         else:   
             topic = split[0]    
             subcr = split[1]
-            q = RabbitQ()
-            q.subscribeTopic(topic, subcr)
+            RabbitQ_singleton.subscribeTopic(topic, subcr)
         self.sendResp(200)
 
     def do_GET(self):
-        print "Get request"
-        print self.path
+        if debug_mode:
+            print "Get request"
+            print self.path
         split = self.pathsplit(self.path)
-        #print "request path %s"%self.path
-        print split 
         if len(split) != 2:
             self.sendResp(400)
         topic = split[0]    
         subcr = split[1]
-        q = RabbitQ()
-        code, msg = q.recvMessageonTopic(topic, subcr)
-        print "Get revMesg"
-        print code, msg
+        code, msg = RabbitQ_singleton.recvMessageonTopic(topic, subcr)
+        if debug_mode:
+            print code, msg
         if code != 200:
             self.sendResp(code)
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
-        self.wfile.write(msg)
         self.end_headers()
-    
-    #def do_PUT(self):
-    #    print self.path
-    #    split = self.pathsplit(self.path)
-    #    print "request path %s"%self.path
-    #    print split 
-    #    self.send_response(200)
-    #    self.send_header('Content-Type', 'text/plain')
-    #    self.end_headers()
+        self.wfile.write(msg)
     
     def do_DELETE(self):
+        if debug_mode:
+            print "Delete request"
+            print self.path
         split = self.pathsplit(self.path)
-        print split 
-        
-        self.send_response(200)
+        if len(split) != 2:
+            self.sendResp(400)
+            return
+        topic = split[0]    
+        subcr = split[1]
+        code = RabbitQ_singleton.unSubscrubetoTopic(topic, subcr)
+        self.send_response(code)
         self.send_header('Content-Type', 'text/plain')
         self.end_headers()
 
- 
+#create a threaded http server
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
  
@@ -236,27 +225,18 @@ class SimpleHttpServer():
         self.waitForThread()
  
 if __name__=='__main__':
-    #parser = argparse.ArgumentParser(description='HTTP Server')
-    #parser.add_argument('port', type=int, help='Listening port for HTTP Server')
-    #parser.add_argument('ip', help='HTTP Server IP')
     #args = parser.parse_args()
     #server = SimpleHttpServer(args.ip, args.port)
-    server = SimpleHttpServer("127.0.0.1", 8080)
+    print "Straring RabbitQ connections.."
+    try:
+        RabbitQ_singleton = RabbitQ()
+    except Exception, e:
+        print "Can not connect to RabbitQ server "
+        print "Run RabbitMQ server before staring server by following"
+        print "\t ./rabbitmq-server"
+        sys.exit(1)
     print 'HTTP Server Running...........'
-    #mq = RabbitQ()
-    
-    #mq.subscribeTopic(topics[0],"one")
-    #mq.subscribeTopic(topics[1],"one")
-    
-    
-    #mq.publisToTopic(topics[1], "time2")
-    #mq.recvMessageonTopic(topics[0], "one")
-    #mq.recvMessageonTopic(topics[1], "one")
-    #mq.publisToTopic(topics[0], "time1")
-    #mq.recvMessageonTopic(topics[0], "one")
-    #mq.unSubscrubetoTopic(topics[0],"one")
-    #mq.unSubscrubetoTopic(topics[1],"one")
-
+    server = SimpleHttpServer("127.0.0.1", 8080)
     server.start()
     server.waitForThread()
  
